@@ -67,14 +67,53 @@ export default async function handler(req, res) {
         const config = await db.collection('config').findOne({ _id: 'settings' });
         
         if (config && config.teamsWebhookUrl) {
+          // Fetch all attendance records for this week
+          const allAttendance = await db.collection('attendance')
+            .find({ week })
+            .toArray();
+
+          // Group users by their status for each day
           const weekDate = new Date(week);
+          const dayNames = ['monday', 'tuesday', 'wednesday', 'thursday', 'friday'];
+          const dayLabels = ['Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday'];
+          
+          let messageText = `✅ Everyone has submitted for week of ${weekDate.toLocaleDateString('en-GB', { 
+            month: 'short',
+            day: 'numeric'
+          })}-${new Date(new Date(week).getTime() + 4 * 24 * 60 * 60 * 1000).toLocaleDateString('en-GB', { 
+            month: 'short',
+            day: 'numeric',
+            year: 'numeric'
+          })}!\n\n`;
+
+          // Build the attendance summary for each day
+          dayNames.forEach((day, index) => {
+            const office = [];
+            const remote = [];
+            const holiday = [];
+
+            allAttendance.forEach(record => {
+              const status = record.days[day];
+              if (status === 'office') office.push(record.userName);
+              else if (status === 'remote') remote.push(record.userName);
+              else if (status === 'holiday') holiday.push(record.userName);
+            });
+
+            messageText += `**${dayLabels[index]}:**\n`;
+            if (office.length > 0) {
+              messageText += `🏢 Office: ${office.join(', ')}\n`;
+            }
+            if (remote.length > 0) {
+              messageText += `🏠 Remote: ${remote.join(', ')}\n`;
+            }
+            if (holiday.length > 0) {
+              messageText += `🌴 Holiday: ${holiday.join(', ')}\n`;
+            }
+            messageText += '\n';
+          });
+
           const message = {
-            text: `✅ Everyone has submitted their office attendance for week of ${weekDate.toLocaleDateString('en-GB', { 
-              weekday: 'long',
-              year: 'numeric',
-              month: 'long',
-              day: 'numeric'
-            })}!`
+            text: messageText.trim()
           };
 
           await fetch(config.teamsWebhookUrl, {
