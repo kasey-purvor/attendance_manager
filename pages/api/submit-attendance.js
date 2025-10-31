@@ -72,21 +72,29 @@ export default async function handler(req, res) {
             .find({ week })
             .toArray();
 
-          // Group users by their status for each day
-          const weekDate = new Date(week);
+          // Calculate Monday and Friday dates for the week
+          const monday = new Date(week);
+          const friday = new Date(monday);
+          friday.setDate(monday.getDate() + 4);
+          
+          // Format dates nicely
+          const mondayFormatted = monday.toLocaleDateString('en-GB', { 
+            day: 'numeric',
+            month: 'long'
+          });
+          const fridayFormatted = friday.toLocaleDateString('en-GB', { 
+            day: 'numeric',
+            month: 'long',
+            year: 'numeric'
+          });
+          
+          let messageText = `✅ Fantastic! Everyone has submitted their attendance!\n\n`;
+          messageText += `**Week of ${mondayFormatted} - ${fridayFormatted}**\n\n`;
+
+          // Build the attendance summary for each day
           const dayNames = ['monday', 'tuesday', 'wednesday', 'thursday', 'friday'];
           const dayLabels = ['Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday'];
           
-          let messageText = `✅ Everyone has submitted for week of ${weekDate.toLocaleDateString('en-GB', { 
-            month: 'short',
-            day: 'numeric'
-          })}-${new Date(new Date(week).getTime() + 4 * 24 * 60 * 60 * 1000).toLocaleDateString('en-GB', { 
-            month: 'short',
-            day: 'numeric',
-            year: 'numeric'
-          })}!\n\n`;
-
-          // Build the attendance summary for each day
           dayNames.forEach((day, index) => {
             const office = [];
             const remote = [];
@@ -99,7 +107,7 @@ export default async function handler(req, res) {
               else if (status === 'holiday') holiday.push(record.userName);
             });
 
-            messageText += `**${dayLabels[index]}:**\n`;
+            messageText += `**${dayLabels[index]}**\n`;
             if (office.length > 0) {
               messageText += `🏢 Office: ${office.join(', ')}\n`;
             }
@@ -111,6 +119,8 @@ export default async function handler(req, res) {
             }
             messageText += '\n';
           });
+          
+          messageText += `📅 View full schedule: https://attendance-manager-eosin.vercel.app/`;
 
           const message = {
             text: messageText.trim()
@@ -141,4 +151,3 @@ export default async function handler(req, res) {
     return res.status(500).json({ error: 'Failed to submit attendance' });
   }
 }
-
