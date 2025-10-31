@@ -15,12 +15,12 @@ export default async function handler(req, res) {
 
   // Validate days object has all weekdays
   const requiredDays = ['monday', 'tuesday', 'wednesday', 'thursday', 'friday'];
-  const validValues = ['office', 'remote', 'holiday'];
+  const validValues = ['office', 'remote', 'holiday', 'offsite'];
   
   for (const day of requiredDays) {
     if (!days[day] || !validValues.includes(days[day])) {
       return res.status(400).json({ 
-        error: `Invalid or missing value for ${day}. Must be: office, remote, or holiday` 
+        error: `Invalid or missing value for ${day}. Must be: office, remote, holiday, or offsite` 
       });
     }
   }
@@ -99,12 +99,14 @@ export default async function handler(req, res) {
             const office = [];
             const remote = [];
             const holiday = [];
+            const offsite = [];
 
             allAttendance.forEach(record => {
               const status = record.days[day];
               if (status === 'office') office.push(record.userName);
               else if (status === 'remote') remote.push(record.userName);
               else if (status === 'holiday') holiday.push(record.userName);
+              else if (status === 'offsite') offsite.push(record.userName);
             });
 
             messageText += `**${dayLabels[index]}**\n`;
@@ -113,6 +115,9 @@ export default async function handler(req, res) {
             }
             if (remote.length > 0) {
               messageText += `🏠 Remote: ${remote.join(', ')}\n`;
+            }
+            if (offsite.length > 0) {
+              messageText += `✈️ Offsite: ${offsite.join(', ')}\n`;
             }
             if (holiday.length > 0) {
               messageText += `🌴 Holiday: ${holiday.join(', ')}\n`;

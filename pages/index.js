@@ -155,6 +155,8 @@ export default function Home() {
         return 'bg-blue-100 text-blue-800 border-blue-300';
       case 'holiday':
         return 'bg-yellow-100 text-yellow-800 border-yellow-300';
+      case 'offsite':
+        return 'bg-purple-100 text-purple-800 border-purple-300';
       default:
         return 'bg-gray-100 text-gray-500 border-gray-300';
     }
@@ -162,7 +164,13 @@ export default function Home() {
 
   const getStatusLabel = (status) => {
     if (!status) return '—';
-    return status.charAt(0).toUpperCase() + status.slice(1);
+    const emoji = {
+      office: '🏢 ',
+      remote: '🏠 ',
+      offsite: '✈️ ',
+      holiday: '🌴 '
+    }[status] || '';
+    return emoji + status.charAt(0).toUpperCase() + status.slice(1);
   };
 
   return (
@@ -324,7 +332,7 @@ export default function Home() {
                     {day}
                   </label>
                   <div className="flex gap-1">
-                    {['office', 'remote', 'holiday'].map(option => {
+                    {['office', 'remote', 'offsite', 'holiday'].map(option => {
                       const isSelected = days[day] === option;
                       let selectedClasses = '';
                       if (isSelected) {
@@ -332,6 +340,8 @@ export default function Home() {
                           selectedClasses = 'bg-green-600 text-white border-green-600';
                         } else if (option === 'remote') {
                           selectedClasses = 'bg-blue-600 text-white border-blue-600';
+                        } else if (option === 'offsite') {
+                          selectedClasses = 'bg-purple-600 text-white border-purple-600';
                         } else if (option === 'holiday') {
                           selectedClasses = 'bg-yellow-500 text-white border-yellow-500';
                         }
@@ -347,7 +357,13 @@ export default function Home() {
                               : 'bg-gray-100 text-gray-700 border-gray-300 hover:bg-gray-200 active:bg-gray-300'
                           }`}
                         >
-                          <span className="capitalize">{option}</span>
+                          <span className="capitalize">
+                            {option === 'office' && '🏢 '}
+                            {option === 'remote' && '🏠 '}
+                            {option === 'offsite' && '✈️ '}
+                            {option === 'holiday' && '🌴 '}
+                            {option}
+                          </span>
                         </button>
                       );
                     })}
