@@ -1,11 +1,14 @@
 import { useState, useEffect } from 'react';
-import { getNextWorkingWeekMonday, formatWeekDate, getWeekDisplayString, addWeeks } from '../utils/dateHelpers';
+import { getCurrentWorkingWeekMonday, getNextWorkingWeekMonday, formatWeekDate, getWeekDisplayString, addWeeks } from '../utils/dateHelpers';
 
 export default function Home() {
   const [currentWeek, setCurrentWeek] = useState('');
+  const [nextWeek, setNextWeek] = useState('');
   const [users, setUsers] = useState([]);
-  const [attendance, setAttendance] = useState([]);
+  const [currentWeekAttendance, setCurrentWeekAttendance] = useState([]);
+  const [nextWeekAttendance, setNextWeekAttendance] = useState([]);
   const [loading, setLoading] = useState(true);
+  const [expandedCards, setExpandedCards] = useState({});
   
   // Form state
   const [selectedUserId, setSelectedUserId] = useState('');
@@ -22,10 +25,12 @@ export default function Home() {
   const [message, setMessage] = useState({ type: '', text: '' });
   const [formExpanded, setFormExpanded] = useState(false);
 
-  // Initialize with next working week
+  // Initialize with current and next working week
   useEffect(() => {
+    const currentMonday = getCurrentWorkingWeekMonday();
     const nextMonday = getNextWorkingWeekMonday();
-    setCurrentWeek(formatWeekDate(nextMonday));
+    setCurrentWeek(formatWeekDate(currentMonday));
+    setNextWeek(formatWeekDate(nextMonday));
   }, []);
 
   // Load users
@@ -44,20 +49,33 @@ export default function Home() {
     loadUsers();
   }, []);
 
-  // Load attendance for current week
+  // Load attendance for both current and next week
   useEffect(() => {
-    if (!currentWeek) return;
+    if (!currentWeek || !nextWeek) return;
 
     async function loadAttendance() {
       setLoading(true);
       try {
-        const res = await fetch(`/api/attendance?week=${currentWeek}`);
-        const data = await res.json();
-        if (data.attendance) {
-          setAttendance(data.attendance);
+        // Fetch both weeks in parallel
+        const [currentRes, nextRes] = await Promise.all([
+          fetch(`/api/attendance?week=${currentWeek}`),
+          fetch(`/api/attendance?week=${nextWeek}`)
+        ]);
+        
+        const [currentData, nextData] = await Promise.all([
+          currentRes.json(),
+          nextRes.json()
+        ]);
+        
+        if (currentData.attendance) {
+          setCurrentWeekAttendance(currentData.attendance);
+        }
+        
+        if (nextData.attendance) {
+          setNextWeekAttendance(nextData.attendance);
           
-          // Pre-fill form if current user already submitted
-          const userAttendance = data.attendance.find(
+          // Pre-fill form if current user already submitted for next week
+          const userAttendance = nextData.attendance.find(
             a => a.userId === selectedUserId && a.attendance
           );
           if (userAttendance && userAttendance.attendance.days) {
@@ -71,11 +89,47 @@ export default function Home() {
       }
     }
     loadAttendance();
-  }, [currentWeek, selectedUserId]);
+  }, [currentWeek, nextWeek, selectedUserId]);
 
   const handleWeekChange = (direction) => {
     setCurrentWeek(prev => addWeeks(prev, direction));
+    setNextWeek(prev => addWeeks(prev, direction));
     setMessage({ type: '', text: '' });
+  };
+
+  const toggleCard = (userId) => {
+    setExpandedCards(prev => ({
+      ...prev,
+      [userId]: !prev[userId]
+    }));
+  };
+
+  const getAttendanceSummary = (userAttendance) => {
+    if (!userAttendance.attendance?.days) {
+      return 'Not submitted';
+    }
+    
+    const days = userAttendance.attendance.days;
+    const counts = {
+      office: 0,
+      remote: 0,
+      holiday: 0,
+      offsite: 0
+    };
+    
+    Object.values(days).forEach(status => {
+      if (counts.hasOwnProperty(status)) {
+        counts[status]++;
+      }
+    });
+    
+    const parts = [];
+    if (counts.office > 0) parts.push(`${counts.office} 🏢`);
+    if (counts.remote > 0) parts.push(`${counts.remote} 🏠`);
+    if (counts.offsite > 0) parts.push(`${counts.offsite} ✈️`);
+    if (counts.holiday > 0) parts.push(`${counts.holiday} 🌴`);
+    
+    return parts.length > 0 ? parts.join(', ') : 'Not submitted';
   };
 
   const handleUserChange = (e) => {
@@ -119,7 +173,7 @@ export default function Home() {
           userId: selectedUserId,
           userName: selectedUserName,
           password,
-          week: currentWeek,
+          week: nextWeek,
           days,
         }),
       });
@@ -130,11 +184,11 @@ export default function Home() {
         setMessage({ type: 'success', text: data.message });
         setPassword('');
         
-        // Reload attendance to show updated data
-        const attendanceRes = await fetch(`/api/attendance?week=${currentWeek}`);
+        // Reload next week attendance to show updated data
+        const attendanceRes = await fetch(`/api/attendance?week=${nextWeek}`);
         const attendanceData = await attendanceRes.json();
         if (attendanceData.attendance) {
-          setAttendance(attendanceData.attendance);
+          setNextWeekAttendance(attendanceData.attendance);
         }
       } else {
         setMessage({ type: 'error', text: data.error || 'Failed to submit attendance' });
@@ -194,7 +248,7 @@ export default function Home() {
               ← Previous Week
             </button>
             <h2 className="text-lg md:text-xl font-semibold text-gray-900 text-center order-first md:order-none">
-              {currentWeek ? getWeekDisplayString(currentWeek) : 'Loading...'}
+              Viewing weeks of {currentWeek ? new Date(currentWeek).toLocaleDateString('en-GB', { month: 'short', day: 'numeric' }) : '...'} & {nextWeek ? new Date(nextWeek).toLocaleDateString('en-GB', { month: 'short', day: 'numeric', year: 'numeric' }) : '...'}
             </h2>
             <button
               onClick={() => handleWeekChange(1)}
@@ -205,49 +259,57 @@ export default function Home() {
           </div>
         </div>
 
-        {/* Team Attendance Grid */}
-        <div className="bg-white rounded-lg shadow-md p-4 md:p-6 mb-6 md:mb-8">
-          <h3 className="text-xl md:text-2xl font-semibold mb-4">Team Attendance</h3>
-          
-          {loading ? (
+        {/* Team Attendance - Side by Side on Desktop, Stacked on Mobile */}
+        {loading ? (
+          <div className="bg-white rounded-lg shadow-md p-4 md:p-6 mb-6 md:mb-8">
             <div className="text-center py-8 text-gray-600">Loading attendance...</div>
-          ) : (
-            <>
+          </div>
+        ) : (
+          <div className="grid grid-cols-1 lg:grid-cols-2 gap-6 mb-6 md:mb-8">
+            {/* Current Week */}
+            <div className="bg-white rounded-lg shadow-md p-4 md:p-6">
+              <h3 className="text-xl md:text-2xl font-semibold mb-4 text-blue-700">
+                Current Week
+              </h3>
+              <p className="text-sm text-gray-600 mb-4">
+                {currentWeek ? getWeekDisplayString(currentWeek) : ''}
+              </p>
+              
               {/* Desktop Table View */}
               <div className="hidden md:block overflow-x-auto">
-                <table className="w-full">
+                <table className="w-full text-sm">
                   <thead>
                     <tr className="border-b-2 border-gray-300">
-                      <th className="text-left py-3 px-4 font-semibold text-gray-700">Name</th>
-                      <th className="text-center py-3 px-4 font-semibold text-gray-700">Monday</th>
-                      <th className="text-center py-3 px-4 font-semibold text-gray-700">Tuesday</th>
-                      <th className="text-center py-3 px-4 font-semibold text-gray-700">Wednesday</th>
-                      <th className="text-center py-3 px-4 font-semibold text-gray-700">Thursday</th>
-                      <th className="text-center py-3 px-4 font-semibold text-gray-700">Friday</th>
+                      <th className="text-left py-2 px-2 font-semibold text-gray-700">Name</th>
+                      <th className="text-center py-2 px-1 font-semibold text-gray-700">Mon</th>
+                      <th className="text-center py-2 px-1 font-semibold text-gray-700">Tue</th>
+                      <th className="text-center py-2 px-1 font-semibold text-gray-700">Wed</th>
+                      <th className="text-center py-2 px-1 font-semibold text-gray-700">Thu</th>
+                      <th className="text-center py-2 px-1 font-semibold text-gray-700">Fri</th>
                     </tr>
                   </thead>
                   <tbody>
-                    {attendance.map((userAttendance, idx) => (
+                    {currentWeekAttendance.map((userAttendance, idx) => (
                       <tr key={userAttendance.userId} className={idx % 2 === 0 ? 'bg-gray-50' : ''}>
-                        <td className="py-3 px-4 font-medium text-gray-900">
+                        <td className="py-2 px-2 font-medium text-gray-900 text-sm">
                           {userAttendance.userName}
                         </td>
                         {['monday', 'tuesday', 'wednesday', 'thursday', 'friday'].map(day => {
                           const status = userAttendance.attendance?.days?.[day];
                           return (
-                            <td key={day} className="text-center py-3 px-4">
-                              <span className={`inline-block px-3 py-1 rounded-full text-sm font-medium border ${getStatusColor(status)}`}>
-                                {getStatusLabel(status)}
+                            <td key={day} className="text-center py-2 px-1">
+                              <span className={`inline-block px-2 py-0.5 rounded-full text-xs font-medium border ${getStatusColor(status)}`}>
+                                {status ? status.charAt(0).toUpperCase() + status.slice(1) : '—'}
                               </span>
                             </td>
                           );
                         })}
                       </tr>
                     ))}
-                    {attendance.length === 0 && (
+                    {currentWeekAttendance.length === 0 && (
                       <tr>
                         <td colSpan="6" className="text-center py-8 text-gray-500">
-                          No attendance records yet for this week
+                          No attendance records yet
                         </td>
                       </tr>
                     )}
@@ -255,45 +317,170 @@ export default function Home() {
                 </table>
               </div>
 
-              {/* Mobile Card View */}
-              <div className="md:hidden space-y-4">
-                {attendance.length === 0 ? (
+              {/* Mobile Accordion View */}
+              <div className="md:hidden space-y-2">
+                {currentWeekAttendance.length === 0 ? (
                   <div className="text-center py-8 text-gray-500">
-                    No attendance records yet for this week
+                    No attendance records yet
                   </div>
                 ) : (
-                  attendance.map((userAttendance) => (
-                    <div key={userAttendance.userId} className="border border-gray-200 rounded-lg p-4 bg-gray-50">
-                      <h4 className="font-semibold text-gray-900 mb-3 text-lg">
-                        {userAttendance.userName}
-                      </h4>
-                      <div className="space-y-2">
+                  currentWeekAttendance.map((userAttendance) => {
+                    const isExpanded = expandedCards[`current-${userAttendance.userId}`];
+                    return (
+                      <div key={userAttendance.userId} className="border border-gray-200 rounded-lg bg-gray-50">
+                        <button
+                          onClick={() => toggleCard(`current-${userAttendance.userId}`)}
+                          className="w-full p-3 flex justify-between items-center text-left touch-manipulation"
+                        >
+                          <span className="font-semibold text-gray-900">
+                            {userAttendance.userName}
+                          </span>
+                          <div className="flex items-center gap-2">
+                            <span className="text-xs text-gray-600">
+                              {getAttendanceSummary(userAttendance)}
+                            </span>
+                            <span className="text-gray-400">
+                              {isExpanded ? '▼' : '▶'}
+                            </span>
+                          </div>
+                        </button>
+                        {isExpanded && (
+                          <div className="px-3 pb-3 space-y-2 border-t border-gray-200 pt-2">
+                            {['monday', 'tuesday', 'wednesday', 'thursday', 'friday'].map(day => {
+                              const status = userAttendance.attendance?.days?.[day];
+                              return (
+                                <div key={day} className="flex justify-between items-center">
+                                  <span className="text-sm font-medium text-gray-700 capitalize">
+                                    {day}
+                                  </span>
+                                  <span className={`px-3 py-1 rounded-full text-sm font-medium border ${getStatusColor(status)}`}>
+                                    {getStatusLabel(status)}
+                                  </span>
+                                </div>
+                              );
+                            })}
+                          </div>
+                        )}
+                      </div>
+                    );
+                  })
+                )}
+              </div>
+            </div>
+
+            {/* Next Week */}
+            <div className="bg-white rounded-lg shadow-md p-4 md:p-6">
+              <h3 className="text-xl md:text-2xl font-semibold mb-4 text-green-700">
+                Next Week
+              </h3>
+              <p className="text-sm text-gray-600 mb-4">
+                {nextWeek ? getWeekDisplayString(nextWeek) : ''}
+              </p>
+              
+              {/* Desktop Table View */}
+              <div className="hidden md:block overflow-x-auto">
+                <table className="w-full text-sm">
+                  <thead>
+                    <tr className="border-b-2 border-gray-300">
+                      <th className="text-left py-2 px-2 font-semibold text-gray-700">Name</th>
+                      <th className="text-center py-2 px-1 font-semibold text-gray-700">Mon</th>
+                      <th className="text-center py-2 px-1 font-semibold text-gray-700">Tue</th>
+                      <th className="text-center py-2 px-1 font-semibold text-gray-700">Wed</th>
+                      <th className="text-center py-2 px-1 font-semibold text-gray-700">Thu</th>
+                      <th className="text-center py-2 px-1 font-semibold text-gray-700">Fri</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {nextWeekAttendance.map((userAttendance, idx) => (
+                      <tr key={userAttendance.userId} className={idx % 2 === 0 ? 'bg-gray-50' : ''}>
+                        <td className="py-2 px-2 font-medium text-gray-900 text-sm">
+                          {userAttendance.userName}
+                        </td>
                         {['monday', 'tuesday', 'wednesday', 'thursday', 'friday'].map(day => {
                           const status = userAttendance.attendance?.days?.[day];
                           return (
-                            <div key={day} className="flex justify-between items-center">
-                              <span className="text-sm font-medium text-gray-700 capitalize">
-                                {day}
+                            <td key={day} className="text-center py-2 px-1">
+                              <span className={`inline-block px-2 py-0.5 rounded-full text-xs font-medium border ${getStatusColor(status)}`}>
+                                {status ? status.charAt(0).toUpperCase() + status.slice(1) : '—'}
                               </span>
-                              <span className={`px-3 py-1 rounded-full text-sm font-medium border ${getStatusColor(status)}`}>
-                                {getStatusLabel(status)}
-                              </span>
-                            </div>
+                            </td>
                           );
                         })}
+                      </tr>
+                    ))}
+                    {nextWeekAttendance.length === 0 && (
+                      <tr>
+                        <td colSpan="6" className="text-center py-8 text-gray-500">
+                          No attendance records yet
+                        </td>
+                      </tr>
+                    )}
+                  </tbody>
+                </table>
+              </div>
+
+              {/* Mobile Accordion View */}
+              <div className="md:hidden space-y-2">
+                {nextWeekAttendance.length === 0 ? (
+                  <div className="text-center py-8 text-gray-500">
+                    No attendance records yet
+                  </div>
+                ) : (
+                  nextWeekAttendance.map((userAttendance) => {
+                    const isExpanded = expandedCards[`next-${userAttendance.userId}`];
+                    return (
+                      <div key={userAttendance.userId} className="border border-gray-200 rounded-lg bg-gray-50">
+                        <button
+                          onClick={() => toggleCard(`next-${userAttendance.userId}`)}
+                          className="w-full p-3 flex justify-between items-center text-left touch-manipulation"
+                        >
+                          <span className="font-semibold text-gray-900">
+                            {userAttendance.userName}
+                          </span>
+                          <div className="flex items-center gap-2">
+                            <span className="text-xs text-gray-600">
+                              {getAttendanceSummary(userAttendance)}
+                            </span>
+                            <span className="text-gray-400">
+                              {isExpanded ? '▼' : '▶'}
+                            </span>
+                          </div>
+                        </button>
+                        {isExpanded && (
+                          <div className="px-3 pb-3 space-y-2 border-t border-gray-200 pt-2">
+                            {['monday', 'tuesday', 'wednesday', 'thursday', 'friday'].map(day => {
+                              const status = userAttendance.attendance?.days?.[day];
+                              return (
+                                <div key={day} className="flex justify-between items-center">
+                                  <span className="text-sm font-medium text-gray-700 capitalize">
+                                    {day}
+                                  </span>
+                                  <span className={`px-3 py-1 rounded-full text-sm font-medium border ${getStatusColor(status)}`}>
+                                    {getStatusLabel(status)}
+                                  </span>
+                                </div>
+                              );
+                            })}
+                          </div>
+                        )}
                       </div>
-                    </div>
-                  ))
+                    );
+                  })
                 )}
               </div>
-            </>
-          )}
-        </div>
+            </div>
+          </div>
+        )}
 
         {/* Personal Attendance Submission Form */}
         <div className="bg-white rounded-lg shadow-md p-4 md:p-6">
           <div className="flex items-center justify-between mb-4">
-            <h3 className="text-xl md:text-2xl font-semibold">Submit Your Attendance</h3>
+            <div>
+              <h3 className="text-xl md:text-2xl font-semibold">Submit Your Attendance</h3>
+              <p className="text-sm text-gray-600 mt-1">
+                For {nextWeek ? getWeekDisplayString(nextWeek) : 'next week'}
+              </p>
+            </div>
             <button
               type="button"
               onClick={() => setFormExpanded(!formExpanded)}

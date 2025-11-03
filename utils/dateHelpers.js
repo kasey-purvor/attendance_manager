@@ -4,6 +4,22 @@ import { utcToZonedTime, zonedTimeToUtc } from 'date-fns-tz';
 const TIMEZONE = 'Europe/London';
 
 /**
+ * Get the current working week's Monday date
+ */
+export function getCurrentWorkingWeekMonday() {
+  const now = utcToZonedTime(new Date(), TIMEZONE);
+  const dayOfWeek = now.getDay(); // 0 = Sunday, 1 = Monday, etc.
+  
+  // If it's Monday through Friday (1-5), return this week's Monday
+  if (dayOfWeek >= 1 && dayOfWeek <= 5) {
+    return startOfWeek(now, { weekStartsOn: 1 });
+  }
+  
+  // If it's Saturday or Sunday, return next week's Monday
+  return nextMonday(now);
+}
+
+/**
  * Get the next working week's Monday date
  * If today is Mon-Thu: next Monday
  * If today is Fri-Sun: upcoming Monday
