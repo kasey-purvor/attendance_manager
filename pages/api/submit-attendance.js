@@ -125,7 +125,7 @@ export default async function handler(req, res) {
             messageText += '\n';
           });
           
-          messageText += `📅 View full schedule: https://attendance-manager-eosin.vercel.app/`;
+          messageText += `📅 View full schedule: https://attendance-manager-murex-one.vercel.app/`;
 
           const message = {
             text: messageText.trim()
